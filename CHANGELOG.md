@@ -7,6 +7,16 @@ Version numbers are MAJOR.MINOR.PATCH:
 - MINOR (1.x.0) for new features or changes to how something works
 - MAJOR (x.0.0) for changes that need settings redone
 
+## 1.4.0 - 2026-11-11
+
+Changed
+- Removed "Allow guildmates" from "Who can ask". Being in your guild no longer
+  lets someone ask by tell or `/say`; use "Allow anyone", "Allow group members"
+  or the always-allowed list instead. Old settings files still load; the old
+  setting is simply dropped.
+- "Listen to guild chat" in Settings is unchanged: keywords sent in guild chat
+  still work when it's ticked.
+
 ## 1.3.1 - 2026-11-11
 
 Changed

@@ -1,6 +1,6 @@
 --[[
   Tellicast/init.lua  -  Heal/buff characters who send you a keyword in a tell.
-  Version 1.3.1  (see CHANGELOG.md in this folder)
+  Version 1.4.0  (see CHANGELOG.md in this folder)
 
   Install:  put this file in your MacroQuest "lua" folder as Tellicast\init.lua.
   Run:      /lua run tellicast
@@ -52,7 +52,7 @@
   {who} in a command is replaced with the requester's name, e.g. "/target {who}".
 ]]
 
-local VERSION = '1.3.1'   -- bump this and add a CHANGELOG.md entry with each change
+local VERSION = '1.4.0'   -- bump this and add a CHANGELOG.md entry with each change
 
 local mq = require('mq')
 local ImGui = require('ImGui')
@@ -91,7 +91,6 @@ local PERSONA_KEYS = { keywords = true, offensive = true, inactive = true, quiet
 local settings = {
     allowAnyone = false,
     allowGroup  = true,
-    allowGuild  = true,
     allowSay    = false, -- take requests heard in /say (they never get a reply)
     replies     = true,
     listenGroup = true,
@@ -322,7 +321,6 @@ local function importIni()
                             local on = (v == '1')
                             if k == 'AllowAnyone' then settings.allowAnyone = on
                             elseif k == 'AllowGroup' then settings.allowGroup = on
-                            elseif k == 'AllowGuild' then settings.allowGuild = on
                             elseif k == 'Replies' then settings.replies = on end
                         end
                     end
@@ -345,12 +343,6 @@ local function isAllowed(who)
     if settings.allowAnyone then return true end
     if settings.allowed[who:lower()] then return true end
     if settings.allowGroup and mq.TLO.Group.Member(who)() then return true end
-    if settings.allowGuild then
-        local myGuild = mq.TLO.Me.Guild()
-        if myGuild and myGuild ~= '' and mq.TLO.Spawn('pc =' .. who).Guild() == myGuild then
-            return true
-        end
-    end
     return false
 end
 
@@ -796,8 +788,6 @@ local function drawPermissions()
     if v ~= settings.allowAnyone then settings.allowAnyone = v; dirty = true end
     v = ImGui.Checkbox('Allow group members', settings.allowGroup)
     if v ~= settings.allowGroup then settings.allowGroup = v; dirty = true end
-    v = ImGui.Checkbox('Allow guildmates', settings.allowGuild)
-    if v ~= settings.allowGuild then settings.allowGuild = v; dirty = true end
     v = ImGui.Checkbox('Allow say', settings.allowSay == true)
     if v ~= (settings.allowSay == true) then settings.allowSay = v; dirty = true end
     if ImGui.IsItemHovered() then
@@ -948,7 +938,9 @@ end
 if not loadSettings() then
     importIni()
 end
-settings.allowOoc = nil   -- "Allow ooc" was in 1.3.0 only; drop it from saved settings
+-- Settings that no longer exist; drop them from saved settings
+settings.allowOoc = nil     -- "Allow ooc" was in 1.3.0 only
+settings.allowGuild = nil   -- "Allow guildmates" was removed in 1.4.0
 saveSettings()   -- writes the per-character and per-persona files
 
 mq.event('TellicastTell', "#1# tells you, '#2#'", onTell)
