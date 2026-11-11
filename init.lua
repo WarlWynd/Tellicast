@@ -1,6 +1,6 @@
 --[[
   Tellicast/init.lua  -  Heal/buff characters who send you a keyword in a tell.
-  Version 1.5.0  (see CHANGELOG.md in this folder)
+  Version 1.5.1  (see CHANGELOG.md in this folder)
 
   Install:  put this file in your MacroQuest "lua" folder as Tellicast\init.lua.
   Run:      /lua run tellicast
@@ -32,7 +32,7 @@
   TellBot_<Name>.ini if one is found.
 
   Players send:  /tell Yourname <keyword>    (or "help" for the list)
-           or:   /tell Yourname menu        (if "Allow menu" is ticked: one line per
+           or:   /tell Yourname menu        (if "Allow [menu]" is ticked: one line per
                                              keyword, like "[heal] Superior Healing")
            or:   /g <keyword>               (group chat, if enabled)
            or:   /say <keyword>             (if "Allow say" is ticked)
@@ -51,7 +51,7 @@
   {who} in a command is replaced with the requester's name, e.g. "/target {who}".
 ]]
 
-local VERSION = '1.5.0'   -- bump this and add a CHANGELOG.md entry with each change
+local VERSION = '1.5.1'   -- bump this and add a CHANGELOG.md entry with each change
 
 local mq = require('mq')
 local ImGui = require('ImGui')
@@ -828,7 +828,7 @@ local function drawSettings()
     if v ~= settings.listenGroup then settings.listenGroup = v; dirty = true end
     v = ImGui.Checkbox('Send replies', settings.replies)
     if v ~= settings.replies then settings.replies = v; dirty = true end
-    v = ImGui.Checkbox('Allow menu', settings.allowMenu == true)
+    v = ImGui.Checkbox('Allow [menu]', settings.allowMenu == true)
     if v ~= (settings.allowMenu == true) then settings.allowMenu = v; dirty = true end
     if ImGui.IsItemHovered() then
         ImGui.SetTooltip('Reply to "menu" with every active keyword and its spell or command, one per line')

@@ -7,6 +7,12 @@ Version numbers are MAJOR.MINOR.PATCH:
 - MINOR (1.x.0) for new features or changes to how something works
 - MAJOR (x.0.0) for changes that need settings redone
 
+## 1.5.1 - 2026-11-11
+
+Changed
+- The "Allow menu" box in Settings is now labeled "Allow [menu]". It works the
+  same as before, and your setting is kept.
+
 ## 1.5.0 - 2026-11-11
 
 Changed
