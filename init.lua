@@ -1,31 +1,33 @@
 --[[
-  TellBot/init.lua  -  Heal/buff characters who send you a keyword in a tell.
-  Version 1.1.0  (see CHANGELOG.md in this folder)
+  Tellicast/init.lua  -  Heal/buff characters who send you a keyword in a tell.
+  Version 1.2.0  (see CHANGELOG.md in this folder)
 
-  Install:  put this file in your MacroQuest "lua" folder as TellBot\init.lua.
-  Run:      /lua run tellbot
-  Stop:     /lua stop tellbot   (or /tellbot quit)
+  Install:  put this file in your MacroQuest "lua" folder as Tellicast\init.lua.
+  Run:      /lua run tellicast
+  Stop:     /lua stop tellicast   (or /tellicast quit)
 
   In-game commands:
-    /tellbot                      toggle the window
-    /tellbot show                 show the window
-    /tellbot hide                 hide the window (TellBot keeps running)
-    /tellbot add <kw> <spell>     add or change a keyword
-    /tellbot remove <kw>          remove a keyword
-    /tellbot allow <name>         always allow a character
-    /tellbot deny <name>          remove a character from the allow list
-    /tellbot on <kw>              make a keyword active
-    /tellbot off <kw>             turn a keyword off (keeps it in the list)
-    /tellbot pause                pause / resume answering requests
-    /tellbot version              show the TellBot version
-    /tellbot quit                 stop the script
+    /tellicast                      toggle the window
+    /tellicast show                 show the window
+    /tellicast hide                 hide the window (Tellicast keeps running)
+    /tellicast add <kw> <spell>     add or change a keyword
+    /tellicast remove <kw>          remove a keyword
+    /tellicast allow <name>         always allow a character
+    /tellicast deny <name>          remove a character from the allow list
+    /tellicast on <kw>              make a keyword active
+    /tellicast off <kw>             turn a keyword off (keeps it in the list)
+    /tellicast pause                pause / resume answering requests
+    /tellicast version              show the Tellicast version
+    /tellicast quit                 stop the script
 
   Personas: keywords are saved separately for each persona (class), so a
   character's Cleric and Wizard personas each have their own list. Switching
   persona swaps the keyword list automatically. "Who can ask" settings are
   shared by all of a character's personas.
-    config/TellBot_<Server>_<Name>.lua          who can ask, replies, listening
-    config/TellBot_<Server>_<Name>_<CLASS>.lua  keywords for one persona
+    config/Tellicast_<Server>_<Name>.lua          who can ask, replies, listening
+    config/Tellicast_<Server>_<Name>_<CLASS>.lua  keywords for one persona
+  Settings saved under the old TellBot name (config/TellBot_*.lua) are picked
+  up automatically and saved again under the Tellicast name.
   On first run, keywords and allowed names are imported from the old
   TellBot_<Name>.ini if one is found.
 
@@ -36,18 +38,18 @@
            or:   /gu <keyword>              (guild chat, if enabled)
   Replies go back on the same channel the request came from.
 
-  Use Assist: tick "Use Assist" next to a keyword and TellBot will
+  Use Assist: tick "Use Assist" next to a keyword and Tellicast will
   /assist whoever asked, wait 2 seconds, and cast that spell on their target
   (e.g. a slow, a nuke, or a heal on a groupmate or pet) instead of on them. Resurrection spells work the same
   way: tick "Use Assist", target the corpse, and send the keyword.
 
   Commands: instead of a spell, a keyword can run any command that starts with
-  "/", such as "/pet attack". With "Use Assist" ticked, TellBot assists the
+  "/", such as "/pet attack". With "Use Assist" ticked, Tellicast assists the
   requester first, so "/pet attack" sends your pet at their target.
   {who} in a command is replaced with the requester's name, e.g. "/target {who}".
 ]]
 
-local VERSION = '1.1.0'   -- bump this and add a CHANGELOG.md entry with each change
+local VERSION = '1.2.0'   -- bump this and add a CHANGELOG.md entry with each change
 
 local mq = require('mq')
 local ImGui = require('ImGui')
@@ -66,9 +68,16 @@ end
 local personaShort, personaName = currentPersona()
 
 local function charPath()
-    return string.format('%s/TellBot_%s_%s.lua', mq.configDir, server, me)
+    return string.format('%s/Tellicast_%s_%s.lua', mq.configDir, server, me)
 end
 local function personaPath(short)
+    return string.format('%s/Tellicast_%s_%s_%s.lua', mq.configDir, server, me, short or personaShort)
+end
+-- Settings files from before the project was renamed from TellBot to Tellicast
+local function oldCharPath()
+    return string.format('%s/TellBot_%s_%s.lua', mq.configDir, server, me)
+end
+local function oldPersonaPath(short)
     return string.format('%s/TellBot_%s_%s_%s.lua', mq.configDir, server, me, short or personaShort)
 end
 local legacyPath = string.format('%s/TellBot_%s.lua', mq.configDir, me)   -- before personas
@@ -118,7 +127,7 @@ local function trim(s)
 end
 
 local function echo(fmt, ...)
-    print(string.format('\at[TellBot]\ax ' .. fmt, ...))
+    print(string.format('\at[Tellicast]\ax ' .. fmt, ...))
 end
 
 local function addLog(fmt, ...)
@@ -224,7 +233,7 @@ local function normalizeSettings()
 end
 
 local function loadPersona()
-    local data = readTable(personaPath())
+    local data = readTable(personaPath()) or readTable(oldPersonaPath())
     local fresh = emptyPersona()
     for k in pairs(PERSONA_KEYS) do
         settings[k] = (data and data[k] ~= nil) and data[k] or fresh[k]
@@ -236,13 +245,17 @@ end
 -- Returns true if any saved settings were found (new or pre-persona format)
 local function loadSettings()
     local charData = readTable(charPath())
+    if not charData then
+        charData = readTable(oldCharPath())
+        if charData then echo('Brought over your settings from TellBot.') end
+    end
     if charData then
         for k, v in pairs(charData) do
             if not PERSONA_KEYS[k] then settings[k] = v end
         end
         settings.allowed = lowerKeys(settings.allowed)
         if not loadPersona() then
-            echo('First time on the %s persona: no keywords yet. Add them in the TellBot window.', personaName)
+            echo('First time on the %s persona: no keywords yet. Add them in the Tellicast window.', personaName)
         end
         return true
     end
@@ -253,7 +266,7 @@ local function loadSettings()
     if legacy then
         for k, v in pairs(legacy) do settings[k] = v end
         normalizeSettings()
-        echo('Moved your TellBot settings to the %s persona. Other personas start with no keywords.', personaName)
+        echo('Moved your Tellicast settings to the %s persona. Other personas start with no keywords.', personaName)
         return true
     end
     return false
@@ -370,7 +383,7 @@ local function handleRequest(sender, msg, channel)
     replyKw = kw
 
     if settings.paused then
-        reply(sender, channel, 'TellBot is paused right now.')
+        reply(sender, channel, 'Tellicast is paused right now.')
         return
     end
 
@@ -813,7 +826,7 @@ end
 local function drawUI()
     if not openGUI then return end
     local show
-    openGUI, show = ImGui.Begin(string.format('TellBot - %s (%s)###TellBot%s', me, personaName, me), openGUI)
+    openGUI, show = ImGui.Begin(string.format('Tellicast - %s (%s)###Tellicast%s', me, personaName, me), openGUI)
     if show then
         ImGui.Text(string.format('v%s    Persona: %s    Status: %s    Queue: %d', VERSION, personaName,
             settings.paused and 'PAUSED' or 'Listening', #queue))
@@ -841,7 +854,7 @@ local function drawUI()
 end
 
 ---------------------------------------------------------------------
--- /tellbot command
+-- /tellicast command
 ---------------------------------------------------------------------
 local function command(...)
     local args = { ... }
@@ -905,16 +918,16 @@ if not loadSettings() then
 end
 saveSettings()   -- writes the per-character and per-persona files
 
-mq.event('TellBotTell', "#1# tells you, '#2#'", onTell)
-mq.event('TellBotGroup', "#1# tells the group, '#2#'", onGroup)
-mq.event('TellBotSelfGroup', "You tell your party, '#1#'", onSelfGroup)
-mq.event('TellBotGuild', "#1# tells the guild, '#2#'", onGuild)
-mq.event('TellBotSelfGuild', "You say to your guild, '#1#'", onSelfGuild)
-mq.bind('/tellbot', command)
-mq.imgui.init('TellBot', drawUI)
+mq.event('TellicastTell', "#1# tells you, '#2#'", onTell)
+mq.event('TellicastGroup', "#1# tells the group, '#2#'", onGroup)
+mq.event('TellicastSelfGroup', "You tell your party, '#1#'", onSelfGroup)
+mq.event('TellicastGuild', "#1# tells the guild, '#2#'", onGuild)
+mq.event('TellicastSelfGuild', "You say to your guild, '#1#'", onSelfGuild)
+mq.bind('/tellicast', command)
+mq.imgui.init('Tellicast', drawUI)
 
 echo('v%s running as %s (%s). Keywords: %s', VERSION, me, personaName, keywordList())
-echo('Type /tellbot to show or hide the window.')
+echo('Type /tellicast to show or hide the window.')
 
 local nextPersonaCheck = 0
 while running do
@@ -933,5 +946,5 @@ while running do
     mq.delay(100)
 end
 
-mq.unbind('/tellbot')
+mq.unbind('/tellicast')
 echo('Stopped.')

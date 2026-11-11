@@ -1,9 +1,20 @@
-# TellBot changelog
+# Tellicast changelog
+
+(Called TellBot up to version 1.1.0.)
 
 Version numbers are MAJOR.MINOR.PATCH:
 - PATCH (1.1.x) for bug fixes
 - MINOR (1.x.0) for new features or changes to how something works
 - MAJOR (x.0.0) for changes that need settings redone
+
+## 1.2.0 - 2026-11-11
+
+Changed
+- Renamed the project from TellBot to Tellicast.
+  - The folder is now `lua\Tellicast`. Run it with `/lua run tellicast`.
+  - The in-game command is now `/tellicast` (for example `/tellicast show`).
+  - Settings files are now `config/Tellicast_*.lua`. Settings saved under the
+    old TellBot names are brought over automatically the first time it runs.
 
 ## 1.1.0 - 2026-11-10
 
