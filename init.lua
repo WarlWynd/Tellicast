@@ -1,6 +1,6 @@
 --[[
   Tellicast/init.lua  -  Heal/buff characters who send you a keyword in a tell.
-  Version 1.4.0  (see CHANGELOG.md in this folder)
+  Version 1.5.0  (see CHANGELOG.md in this folder)
 
   Install:  put this file in your MacroQuest "lua" folder as Tellicast\init.lua.
   Run:      /lua run tellicast
@@ -35,9 +35,8 @@
            or:   /tell Yourname menu        (if "Allow menu" is ticked: one line per
                                              keyword, like "[heal] Superior Healing")
            or:   /g <keyword>               (group chat, if enabled)
-           or:   /gu <keyword>              (guild chat, if enabled)
            or:   /say <keyword>             (if "Allow say" is ticked)
-  Replies go back by tell, group or guild, the same way the request came.
+  Replies go back by tell or group, the same way the request came.
   Public chat (/say, /ooc, /shout and so on) never gets a reply: requests heard
   there just get the spell or command.
 
@@ -52,7 +51,7 @@
   {who} in a command is replaced with the requester's name, e.g. "/target {who}".
 ]]
 
-local VERSION = '1.4.0'   -- bump this and add a CHANGELOG.md entry with each change
+local VERSION = '1.5.0'   -- bump this and add a CHANGELOG.md entry with each change
 
 local mq = require('mq')
 local ImGui = require('ImGui')
@@ -91,10 +90,10 @@ local PERSONA_KEYS = { keywords = true, offensive = true, inactive = true, quiet
 local settings = {
     allowAnyone = false,
     allowGroup  = true,
+    allowGuild  = true,
     allowSay    = false, -- take requests heard in /say (they never get a reply)
     replies     = true,
     listenGroup = true,
-    listenGuild = false,
     allowMenu   = false, -- reply to "menu" with each keyword and its spell/command
     offensive   = {},   -- keyword -> true: /assist the requester and cast on their target
     inactive    = {},   -- keyword -> true: turned off (kept in the list, but ignored)
@@ -138,15 +137,13 @@ local function addLog(fmt, ...)
     while #history > MAX_LOG do table.remove(history) end
 end
 
--- Reply on the channel the request came from: 'tell', 'group', 'guild' or 'self'.
+-- Reply on the channel the request came from: 'tell', 'group' or 'self'.
 -- Any other channel is public chat (/say, /ooc ...) and never gets a reply.
 local function say(who, channel, text)
     if channel == 'self' then
         echo('%s', text)
     elseif channel == 'group' then
         mq.cmdf('/g %s', text)
-    elseif channel == 'guild' then
-        mq.cmdf('/gu %s', text)
     elseif channel == 'tell' then
         mq.cmdf('/tell %s %s', who, text)
     end
@@ -321,6 +318,7 @@ local function importIni()
                             local on = (v == '1')
                             if k == 'AllowAnyone' then settings.allowAnyone = on
                             elseif k == 'AllowGroup' then settings.allowGroup = on
+                            elseif k == 'AllowGuild' then settings.allowGuild = on
                             elseif k == 'Replies' then settings.replies = on end
                         end
                     end
@@ -343,6 +341,12 @@ local function isAllowed(who)
     if settings.allowAnyone then return true end
     if settings.allowed[who:lower()] then return true end
     if settings.allowGroup and mq.TLO.Group.Member(who)() then return true end
+    if settings.allowGuild then
+        local myGuild = mq.TLO.Me.Guild()
+        if myGuild and myGuild ~= '' and mq.TLO.Spawn('pc =' .. who).Guild() == myGuild then
+            return true
+        end
+    end
     return false
 end
 
@@ -416,20 +420,6 @@ end
 -- Our own group messages show as "You tell your party, '...'"
 local function onSelfGroup(line, msg)
     if settings.listenGroup then
-        handleRequest(me, msg, 'self')
-    end
-end
-
--- Guild chat works like group chat: only guildmates can speak there
-local function onGuild(line, sender, msg)
-    if settings.listenGuild then
-        handleRequest(sender, msg, 'guild')
-    end
-end
-
--- Our own guild messages show as "You say to your guild, '...'"
-local function onSelfGuild(line, msg)
-    if settings.listenGuild then
         handleRequest(me, msg, 'self')
     end
 end
@@ -788,6 +778,8 @@ local function drawPermissions()
     if v ~= settings.allowAnyone then settings.allowAnyone = v; dirty = true end
     v = ImGui.Checkbox('Allow group members', settings.allowGroup)
     if v ~= settings.allowGroup then settings.allowGroup = v; dirty = true end
+    v = ImGui.Checkbox('Allow guildmates', settings.allowGuild)
+    if v ~= settings.allowGuild then settings.allowGuild = v; dirty = true end
     v = ImGui.Checkbox('Allow say', settings.allowSay == true)
     if v ~= (settings.allowSay == true) then settings.allowSay = v; dirty = true end
     if ImGui.IsItemHovered() then
@@ -834,8 +826,6 @@ local function drawSettings()
     local v
     v = ImGui.Checkbox('Listen to group chat', settings.listenGroup)
     if v ~= settings.listenGroup then settings.listenGroup = v; dirty = true end
-    v = ImGui.Checkbox('Listen to guild chat', settings.listenGuild)
-    if v ~= settings.listenGuild then settings.listenGuild = v; dirty = true end
     v = ImGui.Checkbox('Send replies', settings.replies)
     if v ~= settings.replies then settings.replies = v; dirty = true end
     v = ImGui.Checkbox('Allow menu', settings.allowMenu == true)
@@ -940,14 +930,12 @@ if not loadSettings() then
 end
 -- Settings that no longer exist; drop them from saved settings
 settings.allowOoc = nil     -- "Allow ooc" was in 1.3.0 only
-settings.allowGuild = nil   -- "Allow guildmates" was removed in 1.4.0
+settings.listenGuild = nil  -- "Listen to guild chat" was removed in 1.5.0
 saveSettings()   -- writes the per-character and per-persona files
 
 mq.event('TellicastTell', "#1# tells you, '#2#'", onTell)
 mq.event('TellicastGroup', "#1# tells the group, '#2#'", onGroup)
 mq.event('TellicastSelfGroup', "You tell your party, '#1#'", onSelfGroup)
-mq.event('TellicastGuild', "#1# tells the guild, '#2#'", onGuild)
-mq.event('TellicastSelfGuild', "You say to your guild, '#1#'", onSelfGuild)
 mq.event('TellicastSay', "#1# says, '#2#'", onSay)
 mq.event('TellicastSelfSay', "You say, '#1#'", onSelfSay)
 mq.bind('/tellicast', command)

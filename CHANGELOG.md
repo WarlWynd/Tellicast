@@ -7,6 +7,15 @@ Version numbers are MAJOR.MINOR.PATCH:
 - MINOR (1.x.0) for new features or changes to how something works
 - MAJOR (x.0.0) for changes that need settings redone
 
+## 1.5.0 - 2026-11-11
+
+Changed
+- "Allow guildmates" is back in "Who can ask" (on by default), so guildmates
+  can ask by tell or `/say` again.
+- Removed "Listen to guild chat". Keywords sent in guild chat are ignored, and
+  Tellicast never replies in guild chat. Old settings files still load; the
+  old setting is simply dropped.
+
 ## 1.4.0 - 2026-11-11
 
 Changed
