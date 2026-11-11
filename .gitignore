@@ -1,0 +1,4 @@
+# Backup and editor files
+*.bak
+*.orig
+*~
