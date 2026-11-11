@@ -7,6 +7,14 @@ Version numbers are MAJOR.MINOR.PATCH:
 - MINOR (1.x.0) for new features or changes to how something works
 - MAJOR (x.0.0) for changes that need settings redone
 
+## 1.3.1 - 2026-11-11
+
+Changed
+- Removed "Allow ooc". Keywords sent in `/ooc` are ignored again. Settings
+  saved by 1.3.0 still load; the old "Allow ooc" setting is simply dropped.
+- Still true: Tellicast never replies in public chat (`/say`, `/ooc`, `/shout`
+  and so on). Replies only go by tell, group or guild.
+
 ## 1.3.0 - 2026-11-11
 
 Added
