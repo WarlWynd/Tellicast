@@ -1,7 +1,8 @@
 --[[
-  tellbot.lua  -  Heal/buff characters who send you a keyword in a tell.
+  TellBot/init.lua  -  Heal/buff characters who send you a keyword in a tell.
+  Version 1.1.0  (see CHANGELOG.md in this folder)
 
-  Install:  put this file in your MacroQuest "lua" folder.
+  Install:  put this file in your MacroQuest "lua" folder as TellBot\init.lua.
   Run:      /lua run tellbot
   Stop:     /lua stop tellbot   (or /tellbot quit)
 
@@ -16,6 +17,7 @@
     /tellbot on <kw>              make a keyword active
     /tellbot off <kw>             turn a keyword off (keeps it in the list)
     /tellbot pause                pause / resume answering requests
+    /tellbot version              show the TellBot version
     /tellbot quit                 stop the script
 
   Personas: keywords are saved separately for each persona (class), so a
@@ -28,20 +30,24 @@
   TellBot_<Name>.ini if one is found.
 
   Players send:  /tell Yourname <keyword>    (or "help" for the list)
+           or:   /tell Yourname menu        (if "Allow menu" is ticked: one line per
+                                             keyword, like "[heal] Superior Healing")
            or:   /g <keyword>               (group chat, if enabled)
            or:   /gu <keyword>              (guild chat, if enabled)
   Replies go back on the same channel the request came from.
 
-  Offensive spells: tick "Offensive Spell" next to a keyword and TellBot will
+  Use Assist: tick "Use Assist" next to a keyword and TellBot will
   /assist whoever asked, wait 2 seconds, and cast that spell on their target
-  (e.g. a slow or nuke) instead of on them. Resurrection spells work the same
-  way: tick "Offensive Spell", target the corpse, and send the keyword.
+  (e.g. a slow, a nuke, or a heal on a groupmate or pet) instead of on them. Resurrection spells work the same
+  way: tick "Use Assist", target the corpse, and send the keyword.
 
   Commands: instead of a spell, a keyword can run any command that starts with
-  "/", such as "/pet attack". With "Offensive Spell" ticked, TellBot assists the
+  "/", such as "/pet attack". With "Use Assist" ticked, TellBot assists the
   requester first, so "/pet attack" sends your pet at their target.
   {who} in a command is replaced with the requester's name, e.g. "/target {who}".
 ]]
+
+local VERSION = '1.1.0'   -- bump this and add a CHANGELOG.md entry with each change
 
 local mq = require('mq')
 local ImGui = require('ImGui')
@@ -77,6 +83,7 @@ local settings = {
     replies     = true,
     listenGroup = true,
     listenGuild = false,
+    allowMenu   = false, -- reply to "menu" with each keyword and its spell/command
     offensive   = {},   -- keyword -> true: /assist the requester and cast on their target
     inactive    = {},   -- keyword -> true: turned off (kept in the list, but ignored)
     quiet       = {},   -- keyword -> true: no replies for this keyword
@@ -329,6 +336,8 @@ end
 ---------------------------------------------------------------------
 -- Tell handling: queue requests, cast from the main loop
 ---------------------------------------------------------------------
+local isOffensive   -- defined below; used by the menu
+
 local function handleRequest(sender, msg, channel)
     local kw = trim(msg):lower()
     if kw == '' then return end
@@ -338,6 +347,21 @@ local function handleRequest(sender, msg, channel)
 
     if kw == 'help' or kw == 'list' then
         say(sender, channel, 'Keywords: ' .. keywordList())
+        return
+    end
+
+    -- "menu": one line per active keyword, e.g. "[heal] Superior Healing"
+    if kw == 'menu' and settings.allowMenu then
+        local lines = 0
+        for _, k in ipairs(sortedKeys(settings.keywords)) do
+            if isActive(k) then
+                if lines > 0 then mq.delay(300) end   -- space the lines out so none get dropped
+                say(sender, channel, string.format('[%s] %s%s', k, settings.keywords[k],
+                    isOffensive(k) and ' (Use Assist)' or ''))
+                lines = lines + 1
+            end
+        end
+        if lines == 0 then say(sender, channel, 'No keywords right now.') end
         return
     end
 
@@ -402,7 +426,7 @@ local function ignoresSight(spellName)
     return ok and summons == true
 end
 
-local function isOffensive(kw)
+function isOffensive(kw)
     settings.offensive = settings.offensive or {}
     return settings.offensive[kw] == true
 end
@@ -440,8 +464,17 @@ local function isRez(spellName)
     return lower:find('resurrect', 1, true) ~= nil or lower:find('reviv', 1, true) ~= nil
 end
 
+-- True for beneficial spells (heals, buffs), which may be cast on players when on Assist
+local function isBeneficial(spellName)
+    local ok, ben = pcall(function() return mq.TLO.Spell(spellName).Beneficial() end)
+    if ok and ben ~= nil then return ben == true end
+    local okT, stype = pcall(function() return mq.TLO.Spell(spellName).SpellType() end)
+    return okT and stype ~= nil and stype:lower():find('beneficial', 1, true) ~= nil
+end
+
 -- corpses: 'only' (rez spells), 'allow' (commands) or nil (other spells: never a corpse)
-local function assistTarget(r, requesterID, isMe, what, corpses)
+-- friendly: true for beneficial spells, so a player (even the requester) is a valid target
+local function assistTarget(r, requesterID, isMe, what, corpses, friendly)
     if not isMe then
         mq.cmdf('/assist %s', r.who)
         mq.delay(2000)
@@ -452,6 +485,11 @@ local function assistTarget(r, requesterID, isMe, what, corpses)
     if corpses == 'only' then
         if tid == 0 or ttype ~= 'Corpse' then
             reply(r.who, r.channel, isMe and 'Target a corpse for %s.' or 'Target a corpse for %s, then ask again.', what)
+            return nil
+        end
+    elseif friendly then
+        if tid == 0 or ttype == 'Corpse' then
+            reply(r.who, r.channel, isMe and 'Target someone for %s.' or "You don't have a target for %s.", what)
             return nil
         end
     elseif tid == 0 or tid == requesterID or ttype == 'PC' or (ttype == 'Corpse' and corpses ~= 'allow') then
@@ -549,7 +587,9 @@ local function processRequest(r)
     if offensive then
         -- Offensive: take the requester's target with /assist, wait, then cast on it.
         -- (If I asked for it myself, just use my current target.)
-        targetName = assistTarget(r, id, isMe, spellName, isRez(spellName) and 'only' or nil)
+        local rez = isRez(spellName)
+        targetName = assistTarget(r, id, isMe, spellName, rez and 'only' or nil,
+            (not rez) and isBeneficial(spellName))
         if not targetName then return end
         if not inReach(r, spellName, mq.TLO.Target, targetName) then return end
     else
@@ -561,11 +601,7 @@ local function processRequest(r)
 
     echo('Casting %s on %s (for %s)', spellName, targetName, who)
     addLog('  casting %s on %s', spellName, targetName)
-    if offensive then
-        reply(who, r.channel, 'Casting %s on %s', spellName, targetName)
-    else
-        reply(who, r.channel, 'Incoming: %s', spellName)
-    end
+    reply(who, r.channel, 'Casting %s on %s', spellName, targetName)
     mq.cmdf('/cast "%s"', spellName)
     mq.delay(1000, function() return mq.TLO.Me.Casting() ~= nil end)
     mq.delay(20000, function() return not mq.TLO.Me.Casting() end)
@@ -594,7 +630,7 @@ local function drawKeywords()
         ImGui.TableSetupColumn('Keyword')
         ImGui.TableSetupColumn('Spell or /command')
         ImGui.TableSetupColumn('Memmed')
-        ImGui.TableSetupColumn('Offensive Spell')
+        ImGui.TableSetupColumn('Use Assist')
         ImGui.TableSetupColumn('No LoS')
         ImGui.TableSetupColumn('Send Replies')
         ImGui.TableSetupColumn('')
@@ -674,7 +710,7 @@ local function drawKeywords()
             end
             if ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled) then
                 ImGui.SetTooltip(settings.replies and 'Send replies for this keyword'
-                    or 'Replies are off for every keyword (Who can ask > Send replies)')
+                    or 'Replies are off for every keyword (Settings > Send replies)')
             end
 
             ImGui.TableNextColumn()
@@ -722,12 +758,6 @@ local function drawPermissions()
     if v ~= settings.allowGroup then settings.allowGroup = v; dirty = true end
     v = ImGui.Checkbox('Allow guildmates', settings.allowGuild)
     if v ~= settings.allowGuild then settings.allowGuild = v; dirty = true end
-    v = ImGui.Checkbox('Listen to group chat', settings.listenGroup)
-    if v ~= settings.listenGroup then settings.listenGroup = v; dirty = true end
-    v = ImGui.Checkbox('Listen to guild chat', settings.listenGuild)
-    if v ~= settings.listenGuild then settings.listenGuild = v; dirty = true end
-    v = ImGui.Checkbox('Send replies', settings.replies)
-    if v ~= settings.replies then settings.replies = v; dirty = true end
 
     ImGui.Separator()
     ImGui.Text('Always allowed:')
@@ -765,12 +795,27 @@ local function drawPermissions()
     end
 end
 
+local function drawSettings()
+    local v
+    v = ImGui.Checkbox('Listen to group chat', settings.listenGroup)
+    if v ~= settings.listenGroup then settings.listenGroup = v; dirty = true end
+    v = ImGui.Checkbox('Listen to guild chat', settings.listenGuild)
+    if v ~= settings.listenGuild then settings.listenGuild = v; dirty = true end
+    v = ImGui.Checkbox('Send replies', settings.replies)
+    if v ~= settings.replies then settings.replies = v; dirty = true end
+    v = ImGui.Checkbox('Allow menu', settings.allowMenu == true)
+    if v ~= (settings.allowMenu == true) then settings.allowMenu = v; dirty = true end
+    if ImGui.IsItemHovered() then
+        ImGui.SetTooltip('Reply to "menu" with every active keyword and its spell or command, one per line')
+    end
+end
+
 local function drawUI()
     if not openGUI then return end
     local show
     openGUI, show = ImGui.Begin(string.format('TellBot - %s (%s)###TellBot%s', me, personaName, me), openGUI)
     if show then
-        ImGui.Text(string.format('Persona: %s    Status: %s    Queue: %d', personaName,
+        ImGui.Text(string.format('v%s    Persona: %s    Status: %s    Queue: %d', VERSION, personaName,
             settings.paused and 'PAUSED' or 'Listening', #queue))
         ImGui.SameLine()
         if ImGui.Button(settings.paused and 'Resume' or 'Pause') then
@@ -783,6 +828,9 @@ local function drawUI()
         end
         if ImGui.CollapsingHeader('Who can ask') then
             drawPermissions()
+        end
+        if ImGui.CollapsingHeader('Settings') then
+            drawSettings()
         end
         if ImGui.CollapsingHeader('Recent requests') then
             if #history == 0 then ImGui.Text('Nothing yet.') end
@@ -836,6 +884,8 @@ local function command(...)
             dirty = true
             echo('%s is now %s.', kw, sub == 'on' and 'active' or 'off')
         end
+    elseif sub == 'version' then
+        echo('Version %s', VERSION)
     elseif sub == 'pause' then
         settings.paused = not settings.paused
         dirty = true
@@ -843,7 +893,7 @@ local function command(...)
     elseif sub == 'quit' then
         running = false
     else
-        echo('Commands: show | hide | add <kw> <spell> | remove <kw> | on <kw> | off <kw> | allow <name> | deny <name> | pause | quit')
+        echo('Commands: show | hide | add <kw> <spell> | remove <kw> | on <kw> | off <kw> | allow <name> | deny <name> | pause | version | quit')
     end
 end
 
@@ -863,7 +913,7 @@ mq.event('TellBotSelfGuild', "You say to your guild, '#1#'", onSelfGuild)
 mq.bind('/tellbot', command)
 mq.imgui.init('TellBot', drawUI)
 
-echo('Running as %s (%s). Keywords: %s', me, personaName, keywordList())
+echo('v%s running as %s (%s). Keywords: %s', VERSION, me, personaName, keywordList())
 echo('Type /tellbot to show or hide the window.')
 
 local nextPersonaCheck = 0
