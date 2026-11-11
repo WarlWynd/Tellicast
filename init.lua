@@ -1,6 +1,6 @@
 --[[
   Tellicast/init.lua  -  Heal/buff characters who send you a keyword in a tell.
-  Version 1.2.0  (see CHANGELOG.md in this folder)
+  Version 1.3.0  (see CHANGELOG.md in this folder)
 
   Install:  put this file in your MacroQuest "lua" folder as Tellicast\init.lua.
   Run:      /lua run tellicast
@@ -36,7 +36,11 @@
                                              keyword, like "[heal] Superior Healing")
            or:   /g <keyword>               (group chat, if enabled)
            or:   /gu <keyword>              (guild chat, if enabled)
-  Replies go back on the same channel the request came from.
+           or:   /say <keyword>             (if "Allow say" is ticked)
+           or:   /ooc <keyword>             (if "Allow ooc" is ticked)
+  Replies go back by tell, group or guild, the same way the request came.
+  Public chat (/say, /ooc, /shout and so on) never gets a reply: requests heard
+  there just get the spell or command.
 
   Use Assist: tick "Use Assist" next to a keyword and Tellicast will
   /assist whoever asked, wait 2 seconds, and cast that spell on their target
@@ -49,7 +53,7 @@
   {who} in a command is replaced with the requester's name, e.g. "/target {who}".
 ]]
 
-local VERSION = '1.2.0'   -- bump this and add a CHANGELOG.md entry with each change
+local VERSION = '1.3.0'   -- bump this and add a CHANGELOG.md entry with each change
 
 local mq = require('mq')
 local ImGui = require('ImGui')
@@ -89,6 +93,8 @@ local settings = {
     allowAnyone = false,
     allowGroup  = true,
     allowGuild  = true,
+    allowSay    = false, -- take requests heard in /say (they never get a reply)
+    allowOoc    = false, -- take requests heard in /ooc (they never get a reply)
     replies     = true,
     listenGroup = true,
     listenGuild = false,
@@ -135,7 +141,8 @@ local function addLog(fmt, ...)
     while #history > MAX_LOG do table.remove(history) end
 end
 
--- Reply on the channel the request came from: 'group', 'tell' or 'self'
+-- Reply on the channel the request came from: 'tell', 'group', 'guild' or 'self'.
+-- Any other channel is public chat (/say, /ooc ...) and never gets a reply.
 local function say(who, channel, text)
     if channel == 'self' then
         echo('%s', text)
@@ -143,10 +150,13 @@ local function say(who, channel, text)
         mq.cmdf('/g %s', text)
     elseif channel == 'guild' then
         mq.cmdf('/gu %s', text)
-    else
+    elseif channel == 'tell' then
         mq.cmdf('/tell %s %s', who, text)
     end
 end
+
+-- Public chat channels: requests are taken, but nothing is ever said back
+local PUBLIC = { say = true, ooc = true }
 
 -- The keyword being handled right now, so replies can follow its "Send Replies" box
 local replyKw = nil
@@ -355,8 +365,12 @@ local function handleRequest(sender, msg, channel)
     local kw = trim(msg):lower()
     if kw == '' then return end
 
-    -- Group chat (others or ourselves) is always allowed; tells go through the permission check
-    if channel == 'tell' and not isAllowed(sender) then return end
+    -- Group chat (others or ourselves) is always allowed; tells and public chat
+    -- go through the permission check
+    if (channel == 'tell' or PUBLIC[channel]) and not isAllowed(sender) then return end
+
+    -- Public chat gets no replies, so "help" and "menu" do nothing there
+    if PUBLIC[channel] and (kw == 'help' or kw == 'list' or kw == 'menu') then return end
 
     if kw == 'help' or kw == 'list' then
         say(sender, channel, 'Keywords: ' .. keywordList())
@@ -426,6 +440,35 @@ end
 -- Our own guild messages show as "You say to your guild, '...'"
 local function onSelfGuild(line, msg)
     if settings.listenGuild then
+        handleRequest(me, msg, 'self')
+    end
+end
+
+-- /say: anyone nearby can hear it, so only players who pass "Who can ask" count,
+-- and they never get a reply in /say. NPCs and pets saying things are ignored.
+local function onSay(line, sender, msg)
+    if not settings.allowSay then return end
+    if not mq.TLO.Spawn('pc =' .. sender)() then return end
+    handleRequest(sender, msg, 'say')
+end
+
+-- Our own /say shows as "You say, '...'"
+local function onSelfSay(line, msg)
+    if settings.allowSay then
+        handleRequest(me, msg, 'self')
+    end
+end
+
+-- /ooc works the same way as /say: allowed players only, never a reply
+local function onOoc(line, sender, msg)
+    if not settings.allowOoc then return end
+    if not mq.TLO.Spawn('pc =' .. sender)() then return end
+    handleRequest(sender, msg, 'ooc')
+end
+
+-- Our own /ooc shows as "You say out of character, '...'"
+local function onSelfOoc(line, msg)
+    if settings.allowOoc then
         handleRequest(me, msg, 'self')
     end
 end
@@ -771,6 +814,16 @@ local function drawPermissions()
     if v ~= settings.allowGroup then settings.allowGroup = v; dirty = true end
     v = ImGui.Checkbox('Allow guildmates', settings.allowGuild)
     if v ~= settings.allowGuild then settings.allowGuild = v; dirty = true end
+    v = ImGui.Checkbox('Allow say', settings.allowSay == true)
+    if v ~= (settings.allowSay == true) then settings.allowSay = v; dirty = true end
+    if ImGui.IsItemHovered() then
+        ImGui.SetTooltip('Take requests heard in /say from anyone allowed above. No replies are sent in /say.')
+    end
+    v = ImGui.Checkbox('Allow ooc', settings.allowOoc == true)
+    if v ~= (settings.allowOoc == true) then settings.allowOoc = v; dirty = true end
+    if ImGui.IsItemHovered() then
+        ImGui.SetTooltip('Take requests heard in /ooc from anyone allowed above. No replies are sent in /ooc.')
+    end
 
     ImGui.Separator()
     ImGui.Text('Always allowed:')
@@ -923,6 +976,10 @@ mq.event('TellicastGroup', "#1# tells the group, '#2#'", onGroup)
 mq.event('TellicastSelfGroup', "You tell your party, '#1#'", onSelfGroup)
 mq.event('TellicastGuild', "#1# tells the guild, '#2#'", onGuild)
 mq.event('TellicastSelfGuild', "You say to your guild, '#1#'", onSelfGuild)
+mq.event('TellicastSay', "#1# says, '#2#'", onSay)
+mq.event('TellicastSelfSay', "You say, '#1#'", onSelfSay)
+mq.event('TellicastOoc', "#1# says out of character, '#2#'", onOoc)
+mq.event('TellicastSelfOoc', "You say out of character, '#1#'", onSelfOoc)
 mq.bind('/tellicast', command)
 mq.imgui.init('Tellicast', drawUI)
 

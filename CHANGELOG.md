@@ -7,6 +7,18 @@ Version numbers are MAJOR.MINOR.PATCH:
 - MINOR (1.x.0) for new features or changes to how something works
 - MAJOR (x.0.0) for changes that need settings redone
 
+## 1.3.0 - 2026-11-11
+
+Added
+- "Allow say" and "Allow ooc" in "Who can ask" (both off by default): keywords
+  sent in `/say` or `/ooc` are taken from anyone the other "Who can ask"
+  settings allow. NPCs and pets saying a keyword are ignored.
+
+Changed
+- Tellicast never replies in public chat (`/say`, `/ooc`, `/shout` and so on).
+  Replies only go by tell, group or guild. Requests heard in public chat just
+  get the spell or command, and "help" and "menu" are ignored there.
+
 ## 1.2.0 - 2026-11-11
 
 Changed
